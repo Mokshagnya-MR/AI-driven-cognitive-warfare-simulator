@@ -2,7 +2,17 @@
   "archive_dirs": [],
   "fakenews_fake_csvs": [],
   "fakenews_real_csvs": [],
-  "liar_tsvs": {},
+  "liar_tsvs": {
+    "test": [
+      "AI\\dataset\\LIAR dataset\\test.tsv"
+    ],
+    "train": [
+      "AI\\dataset\\LIAR dataset\\train.tsv"
+    ],
+    "valid": [
+      "AI\\dataset\\LIAR dataset\\valid.tsv"
+    ]
+  },
   "pheme_candidates": [],
   "news_user_files": {},
   "user_user_files": {},

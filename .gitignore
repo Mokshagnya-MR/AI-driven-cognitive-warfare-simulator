@@ -79,4 +79,16 @@ AI/**/.ipynb_checkpoints/
 AI/dataset/archive/
 AI/dataset/archive (1)/
 AI/dataset/archive (2)/
+AI/dataset/FakeNews dataset/
+AI/dataset/LIAR dataset/
+AI/dataset/PHEME dataset/
 AI/outputs/processed_graph.pt
+
+# Generated ML artifacts. Regenerate locally from a discoverable dataset; never
+# treat a checked-in metric or model as evidence of a reproducible evaluation.
+AI/outputs/*.json
+AI/outputs/*.pt
+AI/outputs/splits/
+AI/outputs/eval/
+backend/model/*.pkl
+backend/model/*.json

@@ -1,32 +1,46 @@
 {
-  "test_loss": 0.4678544891740221,
-  "accuracy": 0.9070691024622717,
-  "precision": 0.7839643652561247,
-  "recall": 0.946236559139785,
-  "f1": 0.8574908647990256,
+  "test_loss": 0.6496686259905498,
+  "accuracy": 0.6461698801459094,
+  "precision": 0.6473354231974922,
+  "recall": 0.996781979082864,
+  "f1": 0.7849223946784922,
   "confusion_matrix": [
     [
-      4740,
-      582
+      1,
+      675
     ],
     [
-      120,
-      2112
+      4,
+      1239
     ]
   ],
-  "threshold_used": 0.12,
-  "best_val_f1": 0.8655858813872358,
+  "threshold_used": 0.6549999999999999,
+  "best_val_f1": 0.7863247863247863,
   "split_sizes": {
-    "train": 60428,
-    "val": 7553,
-    "test": 7554
+    "train": 8953,
+    "val": 1919,
+    "test": 1919
+  },
+  "reproducibility": {
+    "split_seed": 42,
+    "split_indices": {
+      "train": "splits/train_idx.npy",
+      "val": "splits/val_idx.npy",
+      "test": "splits/test_idx.npy"
+    },
+    "runtime_feature_schema": [
+      "velocity",
+      "bot_ratio",
+      "echo_density",
+      "depth"
+    ]
   },
   "artifacts": {
     "state_dict": "model_state_dict.pt",
-    "torchscript": "model_torchscript.pt",
-    "backend_model": "/home/user/dev/aiot/backend/model/model.pkl",
-    "backend_metadata": "/home/user/dev/aiot/backend/model/model_metadata.json",
+    "backend_model": "..\\..\\backend\\model\\model.pkl",
+    "backend_metadata": "..\\..\\backend\\model\\model_metadata.json",
     "backend_threshold": 0.5,
-    "backend_test_f1": 0.45972402405944096
+    "backend_test_f1": 0.7862112586970272,
+    "torchscript_error": "RuntimeError: "
   }
 }
