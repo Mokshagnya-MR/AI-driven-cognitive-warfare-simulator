@@ -13,7 +13,7 @@ import torch.nn.functional as F
 from torch import nn
 from torch_geometric.nn import GATConv, global_mean_pool
 
-from app.core.config import BACKEND_MODEL_PATH, FEATURE_NAMES, MODEL_METADATA_PATH, MODEL_PATH, MODEL_STATE_DICT_PATH, PROCESSED_GRAPH_PATH
+from app.core.config import ARTIFACT_MANIFEST_PATH, BACKEND_MODEL_PATH, FEATURE_NAMES, MODEL_METADATA_PATH, MODEL_PATH, MODEL_STATE_DICT_PATH, PROCESSED_GRAPH_PATH
 from app.core.logger import get_logger
 
 
@@ -186,40 +186,11 @@ class TrainedGNNDetectionModel:
             probability = torch.sigmoid(torch.as_tensor(logits, dtype=torch.float32, device=self.device)).item()
         return float(probability)
 
-    def _tabular_adapter_probability(self, feature_row: torch.Tensor) -> float:
-        row = feature_row.detach().cpu().numpy().astype(np.float32)
-        velocity = float(row[0])
-        bot_ratio = float(row[1])
-        echo_density = float(row[2])
-        depth = float(row[3])
-
-        velocity_term = np.clip(velocity / 14.0, 0.0, 1.5)
-        bot_term = np.clip(bot_ratio / 0.25, 0.0, 1.5)
-        echo_term = np.clip(echo_density / 0.55, 0.0, 1.5)
-        depth_term = np.clip(depth / 8.0, 0.0, 1.5)
-
-        score = (
-            1.35 * velocity_term
-            + 2.2 * bot_term
-            + 1.65 * echo_term
-            + 0.85 * depth_term
-            - 2.1
-        )
-        return float(1.0 / (1.0 + np.exp(-score)))
-
     def predict_positive_probabilities(self, features: Sequence[float] | np.ndarray | torch.Tensor) -> np.ndarray:
         feature_tensor = self._prepare_feature_tensor(features)
         probabilities = []
         for row in feature_tensor:
-            gnn_probability = self._predict_single_probability(row)
-            adapter_probability = self._tabular_adapter_probability(row)
-
-            if abs(gnn_probability - 0.5) < 0.08:
-                blended_probability = adapter_probability
-            else:
-                blended_probability = float(0.35 * gnn_probability + 0.65 * adapter_probability)
-
-            probabilities.append(blended_probability)
+            probabilities.append(self._predict_single_probability(row))
 
         return np.asarray(probabilities, dtype=np.float32)
 
@@ -282,8 +253,8 @@ class ModelService:
             )
             return self._load_trained_fallback_model(skip_gnn_attempt=True)
 
-        if not self.model_path.exists():
-            logger.warning("TorchScript model missing at %s, using fallback model", self.model_path)
+        if not self._has_valid_artifact_manifest() or not self.model_path.exists():
+            logger.warning("TorchScript artifact is missing or unverified; using fallback model")
             return self._load_trained_fallback_model(skip_gnn_attempt=True)
 
         try:
@@ -323,7 +294,32 @@ class ModelService:
             expanded[:copy_width] = base[:copy_width]
         return expanded
 
+    def _has_valid_artifact_manifest(self) -> bool:
+        """Accept generated GNN artifacts only when their provenance is recorded."""
+        if not ARTIFACT_MANIFEST_PATH.exists():
+            logger.warning("Artifact manifest missing at %s; refusing generated GNN artifacts", ARTIFACT_MANIFEST_PATH)
+            return False
+
+        try:
+            with open(ARTIFACT_MANIFEST_PATH, "r", encoding="utf-8") as f:
+                manifest = json.load(f)
+            valid = (
+                isinstance(manifest, dict)
+                and manifest.get("schema_version") == 1
+                and manifest.get("feature_schema") == self.feature_names
+                and isinstance(manifest.get("dataset_registry_sha256"), str)
+                and len(manifest["dataset_registry_sha256"]) == 64
+            )
+            if not valid:
+                logger.warning("Artifact manifest is incomplete or has an incompatible feature schema")
+            return valid
+        except Exception as exc:
+            logger.warning("Unable to read artifact manifest: %s", _short_exception_message(exc))
+            return False
+
     def _load_trained_gnn_model(self) -> Any:
+        if not self._has_valid_artifact_manifest():
+            return None
         if not MODEL_STATE_DICT_PATH.exists():
             logger.warning("Trained GNN state dict missing at %s", MODEL_STATE_DICT_PATH)
             return None
@@ -339,7 +335,7 @@ class ModelService:
                     self.feature_dim,
                 )
 
-            model = GraphGATClassifier(in_channels=inferred_in_channels, hidden_channels=192, heads=8, dropout=0.4)
+            model = GraphGATClassifier(in_channels=inferred_in_channels, hidden_channels=64, heads=4, dropout=0.4)
             model.load_state_dict(state_dict)
             model.to(self.device)
             model.eval()
@@ -357,7 +353,7 @@ class ModelService:
             try:
                 state_dict = torch.load(str(MODEL_STATE_DICT_PATH), map_location=self.device)
                 inferred_in_channels = self._infer_in_channels_from_state_dict(state_dict) or self.feature_dim
-                model = GraphGATClassifier(in_channels=inferred_in_channels, hidden_channels=192, heads=8, dropout=0.4)
+                model = GraphGATClassifier(in_channels=inferred_in_channels, hidden_channels=64, heads=4, dropout=0.4)
                 incompatibility = model.load_state_dict(state_dict, strict=False)
                 missing_keys = list(incompatibility.missing_keys)
                 unexpected_keys = list(incompatibility.unexpected_keys)
@@ -390,7 +386,7 @@ class ModelService:
             if trained_gnn_model is not None:
                 return trained_gnn_model
 
-        if BACKEND_MODEL_PATH.exists():
+        if self._has_valid_artifact_manifest() and BACKEND_MODEL_PATH.exists():
             try:
                 logger.info("Loading trained fallback model from %s", BACKEND_MODEL_PATH)
                 return joblib.load(BACKEND_MODEL_PATH)
