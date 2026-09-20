@@ -1,0 +1,12 @@
+{
+  "archive_dirs": [],
+  "fakenews_fake_csvs": [],
+  "fakenews_real_csvs": [],
+  "liar_tsvs": {},
+  "pheme_candidates": [],
+  "news_user_files": {},
+  "user_user_files": {},
+  "news_files": {},
+  "user_files": {},
+  "user_feature_mats": {}
+}

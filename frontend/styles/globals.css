@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-geist-sans: 'Inter', sans-serif;
+    --font-geist-mono: 'JetBrains Mono', monospace;
+  }
+
+  * {
+    @apply border-slate-800;
+  }
+
+  html {
+    @apply scroll-smooth bg-background;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    background-image:
+      radial-gradient(circle at top, rgba(59, 130, 246, 0.08), transparent 35%),
+      linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+    background-size: auto, 72px 72px, 72px 72px;
+    background-position: center top, center top, center top;
+  }
+}
+
+@layer components {
+  .page-shell {
+    @apply relative mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
+  }
+
+  .surface {
+    @apply rounded-2xl border border-white/10 bg-white/[0.03] shadow-soft backdrop-blur-xl;
+  }
+
+  .surface-strong {
+    @apply rounded-3xl border border-white/10 bg-surface/80 shadow-soft backdrop-blur-xl;
+  }
+
+  .section-title {
+    @apply text-3xl font-semibold tracking-tight text-foreground sm:text-4xl;
+  }
+
+  .section-copy {
+    @apply max-w-2xl text-sm leading-6 text-slate-400 sm:text-base;
+  }
+
+  .metric-label {
+    @apply text-xs uppercase tracking-[0.2em] text-slate-500;
+  }
+
+  .metric-value {
+    @apply text-2xl font-semibold tracking-tight text-foreground;
+  }
+
+  .button-base {
+    @apply inline-flex items-center justify-center rounded-full border px-5 py-2.5 text-sm font-medium transition-all duration-200 ease-in-out disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .button-primary {
+    @apply button-base border-slate-700 bg-white text-slate-950 hover:scale-[1.02] hover:bg-slate-100;
+  }
+
+  .button-secondary {
+    @apply button-base border-slate-700 bg-slate-900 text-slate-100 hover:scale-[1.02] hover:bg-slate-800;
+  }
+
+  .button-ghost {
+    @apply button-base border-slate-700 bg-transparent text-slate-200 hover:scale-[1.02] hover:bg-white/5;
+  }
+
+  .input-base {
+    @apply w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-foreground placeholder:text-slate-500 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-500/20;
+  }
+
+  .textarea-base {
+    @apply input-base min-h-36 resize-none;
+  }
+
+  .shimmer {
+    background: linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(255,255,255,0.08) 37%, rgba(255,255,255,0.03) 63%);
+    background-size: 400% 100%;
+    animation: shimmer 1.4s ease-in-out infinite;
+  }
+
+  .page-divider {
+    @apply h-px w-full bg-gradient-to-r from-transparent via-white/10 to-transparent;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: 0 0;
+  }
+}

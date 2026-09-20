@@ -1,0 +1,32 @@
+{
+  "test_loss": 0.4678544891740221,
+  "accuracy": 0.9070691024622717,
+  "precision": 0.7839643652561247,
+  "recall": 0.946236559139785,
+  "f1": 0.8574908647990256,
+  "confusion_matrix": [
+    [
+      4740,
+      582
+    ],
+    [
+      120,
+      2112
+    ]
+  ],
+  "threshold_used": 0.12,
+  "best_val_f1": 0.8655858813872358,
+  "split_sizes": {
+    "train": 60428,
+    "val": 7553,
+    "test": 7554
+  },
+  "artifacts": {
+    "state_dict": "model_state_dict.pt",
+    "torchscript": "model_torchscript.pt",
+    "backend_model": "/home/user/dev/aiot/backend/model/model.pkl",
+    "backend_metadata": "/home/user/dev/aiot/backend/model/model_metadata.json",
+    "backend_threshold": 0.5,
+    "backend_test_f1": 0.45972402405944096
+  }
+}

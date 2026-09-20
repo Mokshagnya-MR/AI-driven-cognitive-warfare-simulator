@@ -1,0 +1,82 @@
+# -----------------------------
+# OS and editor files
+# -----------------------------
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# -----------------------------
+# Python
+# -----------------------------
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+.python-version
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+
+# -----------------------------
+# Logs and runtime
+# -----------------------------
+*.log
+logs/
+*.pid
+*.out
+*.err
+
+# -----------------------------
+# Environment and secrets
+# -----------------------------
+.env
+.env.*
+*.local
+
+# -----------------------------
+# Build and packaging
+# -----------------------------
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# -----------------------------
+# Node / frontend
+# -----------------------------
+node_modules/
+.npm/
+.pnpm-store/
+.yarn/
+.next/
+.nuxt/
+.svelte-kit/
+coverage/
+*.tsbuildinfo
+
+# -----------------------------
+# Project-specific notebook caches
+# -----------------------------
+AI/**/__pycache__/
+AI/**/.ipynb_checkpoints/
+
+# Large/raw dataset archives (keep structure, ignore contents)
+AI/dataset/archive/
+AI/dataset/archive (1)/
+AI/dataset/archive (2)/
+AI/outputs/processed_graph.pt
