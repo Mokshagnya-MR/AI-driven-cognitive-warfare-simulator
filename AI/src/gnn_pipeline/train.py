@@ -163,13 +163,11 @@ def train_and_evaluate(
     config: TrainConfig | None = None,
 ) -> Dict[str, object]:
     cfg = config or TrainConfig()
-    if device.type == "cuda" and config is None:
-        cfg.batch_size = min(cfg.batch_size, 16)
-        cfg.gradient_accumulation_steps = max(cfg.gradient_accumulation_steps, 2)
-        if cfg.cache_subgraphs:
-            cfg.num_workers = 0
-        else:
-            cfg.num_workers = min(max(cfg.num_workers, 2), min(4, (os.cpu_count() or 1)))
+    if device.type == "cuda":
+        if config is None:
+            cfg.batch_size = min(cfg.batch_size, 16)
+            cfg.gradient_accumulation_steps = max(cfg.gradient_accumulation_steps, 2)
+        cfg.num_workers = 0
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -180,7 +178,7 @@ def train_and_evaluate(
     train_idx, tmp_idx, train_y, tmp_y = train_test_split(
         labeled_idx,
         labeled_y,
-        test_size=0.2,
+        test_size=0.3,
         random_state=42,
         stratify=labeled_y if len(np.unique(labeled_y)) > 1 else None,
     )
@@ -191,6 +189,17 @@ def train_and_evaluate(
         random_state=42,
         stratify=tmp_y if len(np.unique(tmp_y)) > 1 else None,
     )
+
+    # Persist the exact split used for every artifact so later reports and baselines
+    # evaluate the same examples rather than silently creating a new partition.
+    splits_path = output_path / "splits"
+    splits_path.mkdir(parents=True, exist_ok=True)
+    np.save(splits_path / "train_idx.npy", train_idx)
+    np.save(splits_path / "val_idx.npy", val_idx)
+    np.save(splits_path / "test_idx.npy", test_idx)
+    for split_name, split_indices in (("train", train_idx), ("val", val_idx), ("test", test_idx)):
+        with open(splits_path / f"{split_name}.json", "w", encoding="utf-8") as split_file:
+            json.dump({"seed": 42, "example_ids": split_indices.astype(int).tolist()}, split_file, indent=2)
 
     logger.info("Train class distribution: %s", compute_class_distribution(train_y))
     logger.info("Val class distribution: %s", compute_class_distribution(val_y))
@@ -220,23 +229,15 @@ def train_and_evaluate(
 
     loader_kwargs = {
         "batch_size": cfg.batch_size,
-        "num_workers": cfg.num_workers,
+        "num_workers": 0,
         "pin_memory": device.type == "cuda",
-        "persistent_workers": cfg.num_workers > 0,
     }
-    if cfg.num_workers > 0:
-        loader_kwargs["prefetch_factor"] = 4
 
     train_loader = DataLoader(train_dataset, shuffle=True, **loader_kwargs)
     val_loader = DataLoader(val_dataset, shuffle=False, **loader_kwargs)
     test_loader = DataLoader(test_dataset, shuffle=False, **loader_kwargs)
 
     model.to(device)
-    if device.type == "cuda" and hasattr(torch, "compile"):
-        try:
-            model = torch.compile(model)
-        except Exception:
-            logger.info("torch.compile unavailable for this model; continuing without it")
 
     criterion, pos_weight_value = _build_loss_fn(cfg, train_y, device)
     logger.info("Using weighted loss with pos_weight=%.4f", pos_weight_value)
@@ -395,8 +396,8 @@ def train_and_evaluate(
                 json.dump(backend_metadata, f, indent=2)
 
             backend_artifacts = {
-                "backend_model": str(backend_path),
-                "backend_metadata": str(metadata_path),
+                "backend_model": os.path.relpath(backend_path, output_path),
+                "backend_metadata": os.path.relpath(metadata_path, output_path),
                 "backend_threshold": float(backend_threshold),
                 "backend_test_f1": float(backend_test_metrics["f1"]),
             }
@@ -407,9 +408,33 @@ def train_and_evaluate(
     export_source = getattr(model, "_orig_mod", model)
     export_model = copy.deepcopy(export_source).to("cpu")
     export_model.eval()
-    scripted_model = torch.jit.script(export_model)
     scripted_path = output_path / "model_torchscript.pt"
-    scripted_model.save(scripted_path)
+    if scripted_path.exists():
+        scripted_path.unlink()
+    torchscript_error = None
+    export_method = None
+    try:
+        scripted_model = torch.jit.script(export_model)
+        scripted_model.save(scripted_path)
+        export_method = "script"
+    except (RuntimeError, OSError) as exc:
+        script_error = f"{exc.__class__.__name__}: {str(exc).splitlines()[0]}"
+        try:
+            # GATConv's internal branching on Optional[Tensor] cannot be scripted with
+            # this PyG version; tracing records the concrete forward path instead.
+            trace_batch = next(iter(test_loader)).to("cpu")
+            traced_model = torch.jit.trace(
+                export_model,
+                (trace_batch.x, trace_batch.edge_index, trace_batch.batch),
+                check_trace=False,
+            )
+            traced_model.save(scripted_path)
+            export_method = "trace"
+        except Exception as trace_exc:
+            torchscript_error = (
+                f"script failed: {script_error}; "
+                f"trace failed: {trace_exc.__class__.__name__}: {str(trace_exc).splitlines()[0]}"
+            )
 
     metrics_payload = {
         "test_loss": test_loss,
@@ -425,12 +450,25 @@ def train_and_evaluate(
             "val": int(len(val_idx)),
             "test": int(len(test_idx)),
         },
+        "reproducibility": {
+            "split_seed": 42,
+            "split_indices": {
+                "train": "splits/train_idx.npy",
+                "val": "splits/val_idx.npy",
+                "test": "splits/test_idx.npy",
+            },
+            "runtime_feature_schema": ["velocity", "bot_ratio", "echo_density", "depth"],
+        },
         "artifacts": {
             "state_dict": str(state_dict_path.name),
-            "torchscript": str(scripted_path.name),
             **backend_artifacts,
         },
     }
+    if scripted_path.exists():
+        metrics_payload["artifacts"]["torchscript"] = str(scripted_path.name)
+        metrics_payload["artifacts"]["torchscript_export_method"] = export_method
+    if torchscript_error is not None:
+        metrics_payload["artifacts"]["torchscript_error"] = torchscript_error
 
     with open(output_path / "metrics.json", "w", encoding="utf-8") as f:
         json.dump(metrics_payload, f, indent=2)

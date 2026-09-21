@@ -6,5 +6,8 @@ scikit-learn
 tqdm
 scipy
 networkx
-transformers
-sentence-transformers
+matplotlib
+transformers==4.41.2
+tokenizers<0.20
+huggingface_hub<0.24
+sentence-transformers==3.0.1

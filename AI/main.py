@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import random
@@ -24,6 +25,7 @@ from src.gnn_pipeline import (
     preprocess_news_dataframe,
     train_and_evaluate,
 )
+from src.gnn_pipeline.train import TrainConfig
 
 
 def set_seed(seed: int = 42) -> None:
@@ -143,6 +145,99 @@ def _resolve_device(use_cuda: bool) -> torch.device:
     return torch.device("cpu")
 
 
+def _write_artifact_manifest(output_dir: Path, registry: dict[str, object], metrics: dict[str, object]) -> None:
+    """Record enough provenance to reject artifacts from an unrelated dataset run."""
+    registry_json = json.dumps(registry, sort_keys=True, separators=(",", ":"))
+    manifest = {
+        "schema_version": 1,
+        "dataset_registry_sha256": hashlib.sha256(registry_json.encode("utf-8")).hexdigest(),
+        "feature_schema": ["velocity", "bot_ratio", "echo_density", "depth"],
+        "split_seed": 42,
+        "artifacts": metrics.get("artifacts", {}),
+    }
+    with open(output_dir / "artifact_manifest.json", "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2)
+
+
+def run_pipeline_for_dataset(
+    dataset_name: str,
+    dataset_root: Path,
+    output_dir: Path,
+    use_cuda: bool = False,
+    embedding_backend: str = "sentence-transformer",
+    text_feature_dim: int = 256,
+    epochs: int = 60,
+    early_stopping_patience: int = 10,
+) -> dict[str, object]:
+    """Train one isolated graph so dataset structure is not mixed with others."""
+    logger = setup_logging()
+    set_seed(42)
+    project_root = Path(__file__).resolve().parent
+    device = _resolve_device(use_cuda=use_cuda)
+    _configure_torch_for_device(device)
+    torch.set_num_threads(max(1, min(8, torch.get_num_threads())))
+    logger.info("Dataset %s | device: %s", dataset_name, device)
+
+    registry = discover_datasets(dataset_root)
+    registry_payload = registry.to_dict()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "dataset_registry.json").write_text(json.dumps(registry_payload, indent=2), encoding="utf-8")
+
+    if dataset_name == "fakenewsnet":
+        news_df, user_news_edges, user_user_edges, user_features = load_fakenewsnet(registry, logger)
+    elif dataset_name == "liar":
+        news_df, user_news_edges, user_user_edges, user_features = load_liar(registry, logger), [], [], {}
+    elif dataset_name == "pheme":
+        news_df, user_news_edges = load_pheme(registry, logger)
+        user_user_edges, user_features = [], {}
+    else:
+        raise ValueError(f"Unsupported dataset name: {dataset_name}")
+
+    news_df = preprocess_news_dataframe(news_df)
+    graph, node_to_idx, texts, timestamps, labels, node_types = build_graph(
+        news_df=news_df,
+        user_news_edges=user_news_edges,
+        user_user_edges=user_user_edges,
+    )
+    user_feat_mat = _assemble_user_feature_matrix(node_to_idx, user_features)
+    backend_features = build_backend_tabular_features(graph.edge_index, timestamps, node_types)
+    np.save(output_dir / "backend_features.npy", backend_features)
+    np.save(output_dir / "labels.npy", np.asarray(labels, dtype=np.int64))
+    graph.x = build_node_features(
+        edge_index=graph.edge_index,
+        texts=texts,
+        timestamps=timestamps,
+        node_types=node_types,
+        user_feature_matrix=user_feat_mat,
+        device=device,
+        logger=logger,
+        embedding_backend=embedding_backend,
+        text_feature_dim=text_feature_dim,
+    )
+    graph.y = torch.tensor(labels, dtype=torch.float32)
+    torch.save({"data": graph, "node_to_idx": node_to_idx, "node_types": node_types}, output_dir / "processed_graph.pt")
+
+    model = GraphGATClassifier(in_channels=graph.x.size(1), hidden_channels=64, heads=4, dropout=0.4)
+    metrics = train_and_evaluate(
+        model=model,
+        graph_data=graph,
+        labels=graph.y,
+        output_dir=output_dir,
+        logger=logger,
+        device=device,
+        backend_features=backend_features,
+        backend_model_path=project_root.parent / "backend" / "model" / f"{dataset_name}_model.pkl",
+        config=TrainConfig(
+            epochs=epochs,
+            batch_size=256 if device.type == "cuda" else 64,
+            gradient_accumulation_steps=1,
+            early_stopping_patience=early_stopping_patience,
+        ),
+    )
+    _write_artifact_manifest(output_dir, registry_payload, metrics)
+    return metrics
+
+
 def run_pipeline(
     dataset_root: Path,
     output_dir: Path,
@@ -161,8 +256,9 @@ def run_pipeline(
     logger.info("Step 1: Data discovery")
     registry = discover_datasets(dataset_root)
     output_dir.mkdir(parents=True, exist_ok=True)
+    registry_payload = registry.to_dict()
     with open(output_dir / "dataset_registry.json", "w", encoding="utf-8") as f:
-        json.dump(registry.to_dict(), f, indent=2)
+        json.dump(registry_payload, f, indent=2)
 
     logger.info("Step 2: Data loading")
     fakenews_df, fakenews_user_news_edges, fakenews_user_user_edges, user_feature_dict = load_fakenewsnet(registry, logger)
@@ -217,7 +313,18 @@ def run_pipeline(
     )
 
     logger.info("Step 6-8: Model, training, and evaluation")
-    model = GraphGATClassifier(in_channels=graph.x.size(1), hidden_channels=192, heads=8, dropout=0.4)
+    training_config = TrainConfig(
+        epochs=6,
+        batch_size=256 if device.type == "cuda" else 64,
+        gradient_accumulation_steps=1,
+        early_stopping_patience=2,
+    )
+    model = GraphGATClassifier(
+        in_channels=graph.x.size(1),
+        hidden_channels=64,
+        heads=4,
+        dropout=0.4,
+    )
     metrics = train_and_evaluate(
         model=model,
         graph_data=graph,
@@ -227,7 +334,10 @@ def run_pipeline(
         device=device,
         backend_features=backend_features,
         backend_model_path=project_root.parent / "backend" / "model" / "model.pkl",
+        config=training_config,
     )
+
+    _write_artifact_manifest(output_dir, registry_payload, metrics)
 
     logger.info("Final metrics: %s", metrics)
     logger.info("Pipeline complete. Outputs written to %s", output_dir)
@@ -235,6 +345,20 @@ def run_pipeline(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Misinformation GNN pipeline")
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default="combined",
+        choices=["combined", "per-dataset"],
+        help="'combined' runs the legacy merged-graph pipeline; 'per-dataset' isolates one dataset's graph",
+    )
+    parser.add_argument(
+        "--dataset-name",
+        type=str,
+        default=None,
+        choices=["fakenewsnet", "liar", "pheme"],
+        help="Required when --mode per-dataset",
+    )
     parser.add_argument("--dataset-root", type=Path, default=None)
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--use-cuda", action="store_true", help="Enable CUDA explicitly")
@@ -246,13 +370,31 @@ if __name__ == "__main__":
         help="Text feature backend",
     )
     parser.add_argument("--text-feature-dim", type=int, default=256)
+    parser.add_argument("--epochs", type=int, default=60, help="Only used in --mode per-dataset")
+    parser.add_argument("--early-stopping-patience", type=int, default=10, help="Only used in --mode per-dataset")
     args = parser.parse_args()
 
     project_root = Path(__file__).resolve().parent
-    run_pipeline(
-        dataset_root=args.dataset_root or (project_root / "dataset"),
-        output_dir=args.output_dir or (project_root / "outputs"),
-        use_cuda=args.use_cuda,
-        embedding_backend=args.embedding_backend,
-        text_feature_dim=args.text_feature_dim,
-    )
+
+    if args.mode == "per-dataset":
+        if args.dataset_name is None:
+            parser.error("--dataset-name is required when --mode per-dataset")
+        metrics = run_pipeline_for_dataset(
+            dataset_name=args.dataset_name,
+            dataset_root=args.dataset_root or (project_root / "dataset"),
+            output_dir=(args.output_dir or (project_root / "outputs")) / args.dataset_name,
+            use_cuda=args.use_cuda,
+            embedding_backend=args.embedding_backend,
+            text_feature_dim=args.text_feature_dim,
+            epochs=args.epochs,
+            early_stopping_patience=args.early_stopping_patience,
+        )
+        print(json.dumps(metrics, indent=2))
+    else:
+        run_pipeline(
+            dataset_root=args.dataset_root or (project_root / "dataset"),
+            output_dir=args.output_dir or (project_root / "outputs"),
+            use_cuda=args.use_cuda,
+            embedding_backend=args.embedding_backend,
+            text_feature_dim=args.text_feature_dim,
+        )

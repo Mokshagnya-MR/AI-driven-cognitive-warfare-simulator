@@ -4,7 +4,15 @@ import logging
 from typing import Dict, Literal
 
 import numpy as np
-from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, precision_score, recall_score
+from sklearn.metrics import (
+    accuracy_score,
+    average_precision_score,
+    confusion_matrix,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+)
 
 
 def compute_class_distribution(labels: np.ndarray) -> Dict[str, int]:
@@ -48,6 +56,21 @@ def compute_metrics(y_true: np.ndarray, probabilities: np.ndarray, threshold: fl
         "f1": float(f1_score(y_true, predictions, zero_division=0)),
         "confusion_matrix": cm,
     }
+
+
+def compute_extended_metrics(y_true: np.ndarray, probabilities: np.ndarray, threshold: float) -> Dict[str, object]:
+    """Add ranking metrics to the thresholded runtime metrics."""
+    metrics = compute_metrics(y_true, probabilities, threshold)
+    if len(np.unique(y_true)) < 2:
+        metrics.update({"roc_auc": 0.0, "pr_auc": 0.0})
+    else:
+        metrics.update(
+            {
+                "roc_auc": float(roc_auc_score(y_true, probabilities)),
+                "pr_auc": float(average_precision_score(y_true, probabilities)),
+            }
+        )
+    return metrics
 
 
 def find_optimal_threshold(

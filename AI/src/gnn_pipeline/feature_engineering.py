@@ -9,7 +9,11 @@ import torch
 from sklearn.decomposition import TruncatedSVD
 from sklearn.feature_extraction.text import HashingVectorizer
 from tqdm.auto import tqdm
-from transformers import AutoModel, AutoTokenizer
+try:
+    from transformers import AutoModel, AutoTokenizer
+except Exception:  # pragma: no cover - optional dependency for transformer embeddings
+    AutoModel = None
+    AutoTokenizer = None
 
 try:
     from sentence_transformers import SentenceTransformer
@@ -45,6 +49,11 @@ def build_text_embeddings(
     batch_size: int = 32,
     max_length: int = 128,
 ) -> np.ndarray:
+    if AutoModel is None or AutoTokenizer is None:
+        raise RuntimeError(
+            "Transformer embeddings require the optional 'transformers' package. "
+            "Use embedding_backend='hashing' or install the dependency."
+        )
     logger.info("Loading transformer model: %s", model_name)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModel.from_pretrained(model_name)

@@ -52,45 +52,47 @@ def discover_datasets(dataset_root: str | Path) -> DatasetRegistry:
     archive_dirs = sorted([p for p in root.glob("archive*") if p.is_dir()])
     registry.archive_dirs = [str(p) for p in archive_dirs]
 
-    for archive_dir in archive_dirs:
-        for path in archive_dir.rglob("*"):
-            if not path.is_file():
-                continue
-            if path.name.endswith(":Zone.Identifier"):
-                continue
+    # Older setups placed every source in archive* directories. Scan the dataset
+    # root instead so the same files are also discovered from named source folders
+    # such as "FakeNews dataset", "LIAR dataset", and "PHEME dataset".
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.name.endswith(":Zone.Identifier"):
+            continue
 
-            lower_name = path.name.lower()
+        lower_name = path.name.lower()
 
-            if lower_name.endswith("_fake_news_content.csv"):
-                registry.fakenews_fake_csvs.append(str(path))
-                continue
-            if lower_name.endswith("_real_news_content.csv"):
-                registry.fakenews_real_csvs.append(str(path))
-                continue
+        if lower_name.endswith("_fake_news_content.csv"):
+            registry.fakenews_fake_csvs.append(str(path))
+            continue
+        if lower_name.endswith("_real_news_content.csv"):
+            registry.fakenews_real_csvs.append(str(path))
+            continue
 
-            if lower_name in {"train.tsv", "valid.tsv", "test.tsv"}:
-                split = lower_name.replace(".tsv", "")
-                _append_map_list(registry.liar_tsvs, split, str(path))
-                continue
+        if lower_name in {"train.tsv", "valid.tsv", "test.tsv"}:
+            split = lower_name.replace(".tsv", "")
+            _append_map_list(registry.liar_tsvs, split, str(path))
+            continue
 
-            if lower_name.endswith("newsuser.txt"):
-                _append_map_list(registry.news_user_files, _source_prefix(path), str(path))
-                continue
-            if lower_name.endswith("useruser.txt"):
-                _append_map_list(registry.user_user_files, _source_prefix(path), str(path))
-                continue
-            if lower_name.endswith("news.txt") and not lower_name.endswith("newsuser.txt"):
-                _append_map_list(registry.news_files, _source_prefix(path), str(path))
-                continue
-            if lower_name.endswith("user.txt") and not lower_name.endswith("useruser.txt") and not lower_name.endswith("newsuser.txt"):
-                _append_map_list(registry.user_files, _source_prefix(path), str(path))
-                continue
-            if lower_name.endswith("userfeature.mat"):
-                _append_map_list(registry.user_feature_mats, _source_prefix(path), str(path))
-                continue
+        if lower_name.endswith("newsuser.txt"):
+            _append_map_list(registry.news_user_files, _source_prefix(path), str(path))
+            continue
+        if lower_name.endswith("useruser.txt"):
+            _append_map_list(registry.user_user_files, _source_prefix(path), str(path))
+            continue
+        if lower_name.endswith("news.txt") and not lower_name.endswith("newsuser.txt"):
+            _append_map_list(registry.news_files, _source_prefix(path), str(path))
+            continue
+        if lower_name.endswith("user.txt") and not lower_name.endswith("useruser.txt") and not lower_name.endswith("newsuser.txt"):
+            _append_map_list(registry.user_files, _source_prefix(path), str(path))
+            continue
+        if lower_name.endswith("userfeature.mat"):
+            _append_map_list(registry.user_feature_mats, _source_prefix(path), str(path))
+            continue
 
-            if lower_name.endswith(".csv"):
-                registry.pheme_candidates.append(str(path))
+        if lower_name.endswith(".csv"):
+            registry.pheme_candidates.append(str(path))
 
     registry.fakenews_fake_csvs = sorted(set(registry.fakenews_fake_csvs))
     registry.fakenews_real_csvs = sorted(set(registry.fakenews_real_csvs))
