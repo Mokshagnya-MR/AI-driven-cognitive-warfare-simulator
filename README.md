@@ -112,6 +112,26 @@ This matters in real-world moderation, fact-checking triage, and policy analysis
   - consumes exported artifacts (`AI/outputs/*`)
   - predicts from compact runtime features
 
+## Evaluation status and reproducibility
+
+Numeric evaluation claims are intentionally absent from this README. The currently
+tracked generated artifacts cannot be reproduced from the repository: their dataset
+registry is empty and their artifact paths refer to a different machine. Treat them
+as stale local files, not as valid evidence; remove them from version control before
+the next commit (they are now ignored for future runs).
+
+To produce results, place supported data under `AI/dataset/`, confirm that
+`discover_datasets()` reports the files, then run `AI/main.py`. A successful run
+writes the dataset registry, fixed train/validation/test split indices, metrics, and
+an `artifact_manifest.json` containing the registry fingerprint and feature schema.
+Do not compare, publish, or serve artifacts whose manifest does not match the data
+used for the run.
+
+The runtime features (`velocity`, `bot_ratio`, `echo_density`, `depth`) are derived
+from the simulator, while offline tabular baseline features are dataset-derived.
+Those are different data-generating processes and must not be presented as a
+like-for-like model comparison.
+
 ## Core Concepts
 
 ### Graph Neural Networks (GNNs)
@@ -253,6 +273,79 @@ SHAP estimates per-feature contribution to model output. ACWS uses these values 
 - `prediction=1`: misinformation-like propagation behavior
 - `prediction=0`: comparatively organic spread behavior
 - `confidence`: max(probability, 1-probability)
+
+## Results
+
+Results come from isolated per-dataset graphs using real sentence-transformer
+text embeddings (`sentence-transformers/all-MiniLM-L6-v2`), seeded 70/15/15
+splits persisted to disk, and the same residual GAT profile trained for up to
+60 epochs with early stopping (patience 10) on the validation F1. The live
+backend uses the FakeNewsNet model by default because it has the richest graph
+structure; LIAR and PHEME remain available for comparison.
+
+| Dataset | Accuracy | F1 | ROC-AUC |
+| --- | ---: | ---: | ---: |
+| FakeNewsNet | 0.7174 | 0.8267 | 0.4040 |
+| LIAR | 0.6566 | 0.7837 | 0.6193 |
+| PHEME | 0.9348 | 0.8541 | 0.9759 |
+| **Macro-average** | **0.7696** | **0.8215** | **0.6664** |
+
+LIAR's graph is intentionally edge-free because its source statements do not
+provide user/news relationships. Its result is therefore a controlled
+comparison with the edge-rich FakeNewsNet and PHEME graphs, not an error hidden
+inside a merged graph — and its F1 sits close to what a text-only classifier is
+expected to achieve on LIAR (the loader currently drops LIAR's speaker
+truthfulness-history columns, which the literature shows carry more signal
+than the statement text alone; see `CHANGELOG.md` for that as a documented
+follow-up rather than something fixed here).
+
+FakeNewsNet's ROC-AUC (0.40) looks worse than random despite a healthy
+accuracy/F1, which is a small-sample artifact, not a broken model: its test
+split is only 46 examples (14 negative), so a couple of probability-ranking
+flips swing the AUC estimate sharply. Treat FakeNewsNet's ranking metrics as
+high-variance and the thresholded metrics (accuracy/F1, which is what the
+backend actually uses to decide) as the more meaningful ones for this dataset.
+PHEME, with a 9,367-example test split, gives the most statistically stable
+estimate of the three, and it's also the strongest result (ROC-AUC 0.976).
+
+Per-dataset metrics and plots are stored under each dataset output folder;
+`AI/outputs/macro_eval_metrics.json` contains the unweighted macro-average.
+
+### GCN Baseline
+
+The same isolated graphs and persisted splits were used for a four-layer
+residual GCN baseline:
+
+| Model | FakeNewsNet F1 | LIAR F1 | PHEME F1 | Macro-average F1 |
+| --- | ---: | ---: | ---: | ---: |
+| Logistic Regression surrogate | 0.8205 | 0.7862 | 0.3626 | 0.6564 |
+| GCN baseline | 0.8205 | 0.7831 | 0.8149 | 0.8062 |
+| GraphGATClassifier (ours) | 0.8267 | 0.7837 | 0.8541 | **0.8215** |
+
+The GAT is the strongest model overall and clearly ahead of both baselines on
+PHEME (the dataset with enough data — 9,367 test examples — for the comparison
+to be statistically meaningful), while GAT/GCN/LR are close to a three-way tie
+on the two smaller, noisier datasets, where sample size dominates any
+architectural difference. The LR surrogate lagging badly on PHEME (0.36 vs. GAT
+0.85) shows the 4 hand-engineered runtime features alone are not sufficient
+there — the graph structure and richer node features are doing real work.
+These comparisons are limited by the small FakeNewsNet sample and the
+different graph structures across datasets. Detailed baseline files are stored
+in `AI/outputs/gcn_macro_metrics.json` and `AI/outputs/lr_macro_metrics.json`.
+
+### Serving-Model Ablation
+
+The leave-one-out ablation targets the default FakeNewsNet serving model and
+uses its persisted test features. All four single-feature ablations still
+produced the same F1 (`0.8205`, delta `0.0000`) as before. This is a structural
+property of the serving path, not a training artifact: `TrainedGNNDetectionModel`
+folds the 4 runtime features into a handful of dimensions of a 384+ dimensional
+graph-feature template (the rest of the template is the dataset's frozen mean
+vector), and at a 46-example test size that's not enough signal to move any
+single feature's ablation past the decision boundary. SHAP mean absolute
+importance ranked the features as depth (`0.0083`), velocity (`0.0058`), bot
+ratio (`0.0049`), and echo density (`0.0044`). Full output is in
+`AI/outputs/fakenewsnet/eval/ablation.json`.
 
 ## Explainability
 
