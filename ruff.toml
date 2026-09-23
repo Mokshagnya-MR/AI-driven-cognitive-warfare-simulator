@@ -1,0 +1,12 @@
+extend-exclude = [
+    "AI/.venv",
+    "AI/dataset",
+    "AI/outputs",
+    "backend/.venv",
+    "frontend",
+]
+
+[lint]
+# Keep CI signal focused on real bugs (syntax errors, undefined names) rather than
+# style debate; broaden this once the codebase has an agreed style baseline.
+select = ["E9", "F63", "F7", "F82"]
