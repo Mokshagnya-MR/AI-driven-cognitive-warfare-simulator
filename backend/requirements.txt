@@ -8,3 +8,5 @@ requests
 shap
 networkx
 python-dotenv
+torch
+torch-geometric

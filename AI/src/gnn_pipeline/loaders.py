@@ -8,6 +8,7 @@ from typing import Dict, Iterable, List, Tuple
 
 import numpy as np
 import pandas as pd
+import scipy.sparse as sparse
 from scipy.io import loadmat
 from scipy.sparse import issparse
 
@@ -105,7 +106,7 @@ def _extract_mat_features(path: str, logger: logging.Logger) -> np.ndarray | spa
     return None
 
 
-def _compress_sparse_row(row: np.ndarray | "scipy.sparse.spmatrix", output_dim: int = 64) -> np.ndarray:
+def _compress_sparse_row(row: np.ndarray | sparse.spmatrix, output_dim: int = 64) -> np.ndarray:
     if hasattr(row, "tocoo"):
         coo = row.tocoo()
         vec = np.zeros(output_dim, dtype=np.float32)

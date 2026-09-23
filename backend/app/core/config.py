@@ -7,14 +7,15 @@ from dotenv import load_dotenv
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 load_dotenv(BACKEND_DIR / ".env")
 PROJECT_ROOT = BACKEND_DIR.parent
-AI_OUTPUTS_DIR = PROJECT_ROOT / "AI" / "outputs"
+DEFAULT_SERVING_DATASET = "fakenewsnet"
+AI_OUTPUTS_DIR = PROJECT_ROOT / "AI" / "outputs" / DEFAULT_SERVING_DATASET
 MODEL_DIR = BACKEND_DIR / "model"
 MODEL_PATH = AI_OUTPUTS_DIR / "model_torchscript.pt"
 MODEL_STATE_DICT_PATH = AI_OUTPUTS_DIR / "model_state_dict.pt"
 PROCESSED_GRAPH_PATH = AI_OUTPUTS_DIR / "processed_graph.pt"
 MODEL_METADATA_PATH = AI_OUTPUTS_DIR / "metrics.json"
-BACKEND_MODEL_PATH = MODEL_DIR / "model.pkl"
-BACKEND_MODEL_METADATA_PATH = MODEL_DIR / "model_metadata.json"
+ARTIFACT_MANIFEST_PATH = AI_OUTPUTS_DIR / "artifact_manifest.json"
+BACKEND_MODEL_PATH = MODEL_DIR / f"{DEFAULT_SERVING_DATASET}_model.pkl"
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3:8b")
