@@ -3,11 +3,6 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
-    --font-geist-sans: 'Inter', sans-serif;
-    --font-geist-mono: 'JetBrains Mono', monospace;
-  }
-
   * {
     @apply border-slate-800;
   }
@@ -53,7 +48,7 @@
   }
 
   .metric-value {
-    @apply text-2xl font-semibold tracking-tight text-foreground;
+    @apply font-mono text-2xl font-semibold tracking-tight tabular-nums text-foreground;
   }
 
   .button-base {

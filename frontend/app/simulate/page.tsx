@@ -6,6 +6,7 @@ import { motion } from 'framer-motion'
 import { simulate } from '@/lib/api'
 import Loader from '@/components/Loader'
 import ResultCard from '@/components/ResultCard'
+import Sparkline from '@/components/Sparkline'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -95,7 +96,7 @@ export default function SimulatePage() {
             <div className="space-y-3">
               <div className="flex items-center justify-between text-sm text-slate-400">
                 <span>Simulation steps</span>
-                <span>{steps}</span>
+                <span className="font-mono tabular-nums">{steps}</span>
               </div>
               <Input type="range" min={1} max={50} value={steps} onChange={(event) => setSteps(Number(event.target.value))} className="h-2 px-0 py-0 accent-slate-200" />
             </div>
@@ -103,7 +104,7 @@ export default function SimulatePage() {
             <div className="space-y-3">
               <div className="flex items-center justify-between text-sm text-slate-400">
                 <span>Bot ratio</span>
-                <span>{botRatio.toFixed(2)}</span>
+                <span className="font-mono tabular-nums">{botRatio.toFixed(2)}</span>
               </div>
               <Input type="range" min={0} max={1} step={0.01} value={botRatio} onChange={(event) => setBotRatio(Number(event.target.value))} className="h-2 px-0 py-0 accent-slate-200" />
             </div>
@@ -111,7 +112,7 @@ export default function SimulatePage() {
             <div className="space-y-3">
               <div className="flex items-center justify-between text-sm text-slate-400">
                 <span>Initial seeds</span>
-                <span>{seedNodes}</span>
+                <span className="font-mono tabular-nums">{seedNodes}</span>
               </div>
               <Input type="range" min={1} max={50} step={1} value={seedNodes} onChange={(event) => setSeedNodes(Number(event.target.value))} className="h-2 px-0 py-0 accent-slate-200" />
             </div>
@@ -119,7 +120,7 @@ export default function SimulatePage() {
             <div className="space-y-3">
               <div className="flex items-center justify-between text-sm text-slate-400">
                 <span>Influence strength</span>
-                <span>{influencerStrength.toFixed(2)}</span>
+                <span className="font-mono tabular-nums">{influencerStrength.toFixed(2)}</span>
               </div>
               <Input type="range" min={0} max={1} step={0.01} value={influencerStrength} onChange={(event) => setInfluencerStrength(Number(event.target.value))} className="h-2 px-0 py-0 accent-slate-200" />
             </div>
@@ -145,6 +146,20 @@ export default function SimulatePage() {
 
             <Card>
               <CardHeader>
+                <CardTitle>Spread over time</CardTitle>
+                <CardDescription>New exposures per simulation step.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Sparkline data={result.propagation_metrics.velocity_by_step} className="h-16 w-full text-rose-300" strokeColor="#fda4af" fillId="simulate-velocity-fill" />
+                <div className="mt-3 flex justify-between font-mono text-xs tabular-nums text-slate-500">
+                  <span>Step 0</span>
+                  <span>Step {result.propagation_metrics.velocity_by_step.length - 1}</span>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
                 <CardTitle>Network composition</CardTitle>
                 <CardDescription>Agent distribution across the simulated network.</CardDescription>
               </CardHeader>
@@ -153,7 +168,7 @@ export default function SimulatePage() {
                   {Object.entries(result.graph_stats.agent_counts).map(([agentType, count]) => (
                     <div key={agentType} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                       <div className="metric-label">{agentType}</div>
-                      <div className="mt-2 text-2xl font-semibold text-foreground">{count}</div>
+                      <div className="mt-2 metric-value">{count}</div>
                     </div>
                   ))}
                 </div>

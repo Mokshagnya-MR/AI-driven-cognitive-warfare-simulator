@@ -6,6 +6,7 @@ import { motion } from 'framer-motion'
 import { analyze } from '@/lib/api'
 import Loader from '@/components/Loader'
 import ResultCard from '@/components/ResultCard'
+import Sparkline from '@/components/Sparkline'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -150,7 +151,7 @@ export default function AnalyzePage() {
             <div className="space-y-3">
               <div className="flex items-center justify-between text-sm text-slate-400">
                 <span>Simulation steps</span>
-                <span>{steps}</span>
+                <span className="font-mono tabular-nums">{steps}</span>
               </div>
               <Input type="range" min={1} max={50} value={steps} onChange={(event) => setSteps(Number(event.target.value))} className="h-2 px-0 py-0 accent-slate-200" />
             </div>
@@ -196,7 +197,7 @@ export default function AnalyzePage() {
                     <Badge className={cn('text-xs uppercase tracking-[0.18em]', riskStyles.badge)}>{formatRiskLabel(result.explanation.risk_level)}</Badge>
                     <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-right">
                       <div className="metric-label">Confidence</div>
-                      <div className="mt-1 text-3xl font-semibold text-foreground">{(confidenceValue * 100).toFixed(0)}%</div>
+                      <div className="mt-1 font-mono text-3xl font-semibold tabular-nums text-foreground">{(confidenceValue * 100).toFixed(0)}%</div>
                     </div>
                   </div>
                 </div>
@@ -204,7 +205,7 @@ export default function AnalyzePage() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-sm text-slate-400">
                     <span>Confidence</span>
-                    <span>{(confidenceValue * 100).toFixed(1)}%</span>
+                    <span className="font-mono tabular-nums">{(confidenceValue * 100).toFixed(1)}%</span>
                   </div>
                   <div className="h-3 overflow-hidden rounded-full bg-white/[0.06]">
                     <motion.div
@@ -267,7 +268,7 @@ export default function AnalyzePage() {
                               ? describeMetric(signal.label, signal.value)
                               : describeMetric(signal.label, signal.value)}
                       </div>
-                      <div className="mt-2 text-sm text-slate-400">{signal.label}: {displayValue}</div>
+                      <div className="mt-2 font-mono text-sm tabular-nums text-slate-400">{signal.label}: {displayValue}</div>
                       <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/[0.06]">
                         <motion.div
                           initial={{ width: 0 }}
@@ -280,6 +281,24 @@ export default function AnalyzePage() {
                     </motion.div>
                   )
                 })}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Spread over time</CardTitle>
+                <CardDescription>New exposures per simulation step.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {metrics ? (
+                  <>
+                    <Sparkline data={metrics.velocity_by_step} className="h-16 w-full text-rose-300" strokeColor="#fda4af" fillId="analyze-velocity-fill" />
+                    <div className="mt-3 flex justify-between font-mono text-xs tabular-nums text-slate-500">
+                      <span>Step 0</span>
+                      <span>Step {metrics.velocity_by_step.length - 1}</span>
+                    </div>
+                  </>
+                ) : null}
               </CardContent>
             </Card>
 
@@ -302,7 +321,7 @@ export default function AnalyzePage() {
                         <div className="text-sm font-medium text-slate-100">{driver.label}</div>
                         <div className="text-xs leading-5 text-slate-400">{driver.explanation}</div>
                       </div>
-                      <div className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-xs text-slate-200">
+                      <div className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 font-mono text-xs tabular-nums text-slate-200">
                         {(driver.score * 100).toFixed(0)}%
                       </div>
                     </div>
@@ -341,7 +360,7 @@ export default function AnalyzePage() {
                   {Object.entries(result.metrics.graph_stats.agent_counts).map(([agentType, count]) => (
                     <div key={agentType} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                       <div className="metric-label">{agentType}</div>
-                      <div className="mt-2 text-2xl font-semibold text-foreground">{count}</div>
+                      <div className="mt-2 metric-value">{count}</div>
                     </div>
                   ))}
                 </div>

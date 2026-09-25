@@ -1,9 +1,11 @@
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
+import { Inter, JetBrains_Mono } from 'next/font/google'
 import '../styles/globals.css'
+import MotionProvider from '@/components/MotionProvider'
 import Navbar from '@/components/Navbar'
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-geist-sans' })
+const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-geist-mono' })
 
 export const metadata: Metadata = {
   title: 'ACWS',
@@ -16,10 +18,12 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className={inter.variable}>
+    <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`}>
       <body className="min-h-screen bg-background text-foreground">
-        <Navbar />
-        <main>{children}</main>
+        <MotionProvider>
+          <Navbar />
+          <main>{children}</main>
+        </MotionProvider>
       </body>
     </html>
   )

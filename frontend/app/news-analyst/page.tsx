@@ -118,7 +118,7 @@ export default function NewsAnalystPage() {
                 <div className={cn('text-2xl font-semibold', result.prediction === 1 ? 'text-rose-200' : 'text-emerald-200')}>
                   {assessmentLabel}
                 </div>
-                <div className="text-sm text-slate-300">Confidence: {(result.confidence * 100).toFixed(1)}%</div>
+                <div className="font-mono text-sm tabular-nums text-slate-300">Confidence: {(result.confidence * 100).toFixed(1)}%</div>
                 <p className="whitespace-pre-wrap text-sm leading-7 text-slate-300">{result.explanation.summary}</p>
               </CardContent>
             </Card>
@@ -151,7 +151,7 @@ export default function NewsAnalystPage() {
                   <div key={`${driver.label}-${index}`} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                     <div className="flex items-center justify-between gap-3">
                       <p className="text-sm font-medium text-slate-100">{driver.label}</p>
-                      <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-xs text-slate-200">
+                      <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 font-mono text-xs tabular-nums text-slate-200">
                         {(driver.score * 100).toFixed(0)}%
                       </span>
                     </div>
