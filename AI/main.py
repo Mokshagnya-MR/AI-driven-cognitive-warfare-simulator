@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
+import yaml
 from scipy import sparse
 from sklearn.decomposition import TruncatedSVD
 
@@ -26,6 +27,40 @@ from src.gnn_pipeline import (
     train_and_evaluate,
 )
 from src.gnn_pipeline.train import TrainConfig
+
+
+DEFAULT_PIPELINE_CONFIG = {
+    "seed": 42,
+    "train_ratio": 0.70,
+    "val_ratio": 0.15,
+    "test_ratio": 0.15,
+}
+
+
+def load_pipeline_config(project_root: Path, config_path: Path | None = None) -> dict[str, float | int]:
+    """Read AI/config.yaml (seed, split ratios) instead of relying on values hardcoded in train.py."""
+    path = config_path or (project_root / "config.yaml")
+    config = dict(DEFAULT_PIPELINE_CONFIG)
+    if not path.exists():
+        return config
+
+    with open(path, "r", encoding="utf-8") as f:
+        raw = yaml.safe_load(f) or {}
+
+    if "seed" in raw:
+        config["seed"] = int(raw["seed"])
+
+    split = raw.get("split", {})
+    if isinstance(split, dict):
+        config["train_ratio"] = float(split.get("train", config["train_ratio"]))
+        config["val_ratio"] = float(split.get("validation", config["val_ratio"]))
+        config["test_ratio"] = float(split.get("test", config["test_ratio"]))
+
+    ratio_sum = config["train_ratio"] + config["val_ratio"] + config["test_ratio"]
+    if not np.isclose(ratio_sum, 1.0, atol=1e-6):
+        raise ValueError(f"config.yaml split ratios must sum to 1.0, got {ratio_sum}")
+
+    return config
 
 
 def set_seed(seed: int = 42) -> None:
@@ -145,14 +180,14 @@ def _resolve_device(use_cuda: bool) -> torch.device:
     return torch.device("cpu")
 
 
-def _write_artifact_manifest(output_dir: Path, registry: dict[str, object], metrics: dict[str, object]) -> None:
+def _write_artifact_manifest(output_dir: Path, registry: dict[str, object], metrics: dict[str, object], seed: int = 42) -> None:
     """Record enough provenance to reject artifacts from an unrelated dataset run."""
     registry_json = json.dumps(registry, sort_keys=True, separators=(",", ":"))
     manifest = {
         "schema_version": 1,
         "dataset_registry_sha256": hashlib.sha256(registry_json.encode("utf-8")).hexdigest(),
         "feature_schema": ["velocity", "bot_ratio", "echo_density", "depth"],
-        "split_seed": 42,
+        "split_seed": seed,
         "artifacts": metrics.get("artifacts", {}),
     }
     with open(output_dir / "artifact_manifest.json", "w", encoding="utf-8") as f:
@@ -171,12 +206,13 @@ def run_pipeline_for_dataset(
 ) -> dict[str, object]:
     """Train one isolated graph so dataset structure is not mixed with others."""
     logger = setup_logging()
-    set_seed(42)
     project_root = Path(__file__).resolve().parent
+    pipeline_config = load_pipeline_config(project_root)
+    set_seed(int(pipeline_config["seed"]))
     device = _resolve_device(use_cuda=use_cuda)
     _configure_torch_for_device(device)
     torch.set_num_threads(max(1, min(8, torch.get_num_threads())))
-    logger.info("Dataset %s | device: %s", dataset_name, device)
+    logger.info("Dataset %s | device: %s | pipeline_config: %s", dataset_name, device, pipeline_config)
 
     registry = discover_datasets(dataset_root)
     registry_payload = registry.to_dict()
@@ -232,9 +268,13 @@ def run_pipeline_for_dataset(
             batch_size=256 if device.type == "cuda" else 64,
             gradient_accumulation_steps=1,
             early_stopping_patience=early_stopping_patience,
+            seed=int(pipeline_config["seed"]),
+            train_ratio=float(pipeline_config["train_ratio"]),
+            val_ratio=float(pipeline_config["val_ratio"]),
+            test_ratio=float(pipeline_config["test_ratio"]),
         ),
     )
-    _write_artifact_manifest(output_dir, registry_payload, metrics)
+    _write_artifact_manifest(output_dir, registry_payload, metrics, seed=int(pipeline_config["seed"]))
     return metrics
 
 

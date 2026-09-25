@@ -7,6 +7,7 @@ tqdm
 scipy
 networkx
 matplotlib
+pyyaml
 transformers==4.41.2
 tokenizers<0.20
 huggingface_hub<0.24

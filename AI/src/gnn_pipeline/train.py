@@ -38,6 +38,10 @@ class TrainConfig:
     use_focal_loss: bool = False
     focal_gamma: float = 2.0
     threshold_objective: str = "f1"
+    seed: int = 42
+    train_ratio: float = 0.70
+    val_ratio: float = 0.15
+    test_ratio: float = 0.15
 
 
 class FocalBCEWithLogitsLoss(nn.Module):
@@ -175,18 +179,21 @@ def train_and_evaluate(
     labeled_idx = torch.where(labels >= 0)[0].cpu().numpy()
     labeled_y = labels[labeled_idx].cpu().numpy().astype(np.int64)
 
+    holdout_ratio = cfg.val_ratio + cfg.test_ratio
+    test_share_of_holdout = cfg.test_ratio / holdout_ratio if holdout_ratio > 0 else 0.5
+
     train_idx, tmp_idx, train_y, tmp_y = train_test_split(
         labeled_idx,
         labeled_y,
-        test_size=0.3,
-        random_state=42,
+        test_size=holdout_ratio,
+        random_state=cfg.seed,
         stratify=labeled_y if len(np.unique(labeled_y)) > 1 else None,
     )
     val_idx, test_idx, val_y, test_y = train_test_split(
         tmp_idx,
         tmp_y,
-        test_size=0.5,
-        random_state=42,
+        test_size=test_share_of_holdout,
+        random_state=cfg.seed,
         stratify=tmp_y if len(np.unique(tmp_y)) > 1 else None,
     )
 
@@ -199,7 +206,7 @@ def train_and_evaluate(
     np.save(splits_path / "test_idx.npy", test_idx)
     for split_name, split_indices in (("train", train_idx), ("val", val_idx), ("test", test_idx)):
         with open(splits_path / f"{split_name}.json", "w", encoding="utf-8") as split_file:
-            json.dump({"seed": 42, "example_ids": split_indices.astype(int).tolist()}, split_file, indent=2)
+            json.dump({"seed": cfg.seed, "example_ids": split_indices.astype(int).tolist()}, split_file, indent=2)
 
     logger.info("Train class distribution: %s", compute_class_distribution(train_y))
     logger.info("Val class distribution: %s", compute_class_distribution(val_y))
@@ -356,7 +363,7 @@ def train_and_evaluate(
             backend_model = LogisticRegression(
                 max_iter=2000,
                 class_weight="balanced",
-                random_state=42,
+                random_state=cfg.seed,
             )
             backend_model.fit(backend_train_x, train_y)
 
@@ -451,7 +458,7 @@ def train_and_evaluate(
             "test": int(len(test_idx)),
         },
         "reproducibility": {
-            "split_seed": 42,
+            "split_seed": cfg.seed,
             "split_indices": {
                 "train": "splits/train_idx.npy",
                 "val": "splits/val_idx.npy",
