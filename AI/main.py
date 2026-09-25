@@ -222,7 +222,8 @@ def run_pipeline_for_dataset(
     if dataset_name == "fakenewsnet":
         news_df, user_news_edges, user_user_edges, user_features = load_fakenewsnet(registry, logger)
     elif dataset_name == "liar":
-        news_df, user_news_edges, user_user_edges, user_features = load_liar(registry, logger), [], [], {}
+        news_df, liar_speaker_history_features = load_liar(registry, logger)
+        user_news_edges, user_user_edges, user_features = [], [], liar_speaker_history_features
     elif dataset_name == "pheme":
         news_df, user_news_edges = load_pheme(registry, logger)
         user_user_edges, user_features = [], {}
@@ -302,7 +303,7 @@ def run_pipeline(
 
     logger.info("Step 2: Data loading")
     fakenews_df, fakenews_user_news_edges, fakenews_user_user_edges, user_feature_dict = load_fakenewsnet(registry, logger)
-    liar_df = load_liar(registry, logger)
+    liar_df, _liar_speaker_history_features = load_liar(registry, logger)
     pheme_df, pheme_user_news_edges = load_pheme(registry, logger)
 
     all_df = pd.concat([fakenews_df, liar_df, pheme_df], ignore_index=True)

@@ -11,6 +11,7 @@ import pandas as pd
 import scipy.sparse as sparse
 from scipy.io import loadmat
 from scipy.sparse import issparse
+from sklearn.feature_extraction.text import HashingVectorizer
 
 from .discovery import DatasetRegistry
 
@@ -274,12 +275,69 @@ def load_fakenewsnet(
     return df, user_news_edges, user_user_edges, user_features
 
 
+LIAR_NUMERIC_HISTORY_COLUMNS = [
+    "barely_true",
+    "false_count",
+    "half_true_count",
+    "mostly_true_count",
+    "pants_fire_count",
+]
+_LIAR_TOP_PARTIES = 6
+_LIAR_SPEAKER_SUBJECT_HASH_DIM = 16
+
+
+def _build_liar_speaker_history_features(
+    raw_numeric: Dict[str, np.ndarray],
+    raw_party: Dict[str, str],
+    raw_speaker_subject: Dict[str, str],
+) -> Dict[str, np.ndarray]:
+    """Encode LIAR's speaker truthfulness-history + party/speaker/subject metadata.
+
+    These columns are discarded by the statement-text-only loader above even though
+    the LIAR literature shows they carry more signal than the statement text alone.
+    Kept as auxiliary per-node features (not text) so they flow through the existing
+    build_node_features `user_feature_matrix` append path unchanged.
+    """
+    if not raw_numeric:
+        return {}
+
+    node_ids = list(raw_numeric.keys())
+
+    numeric_matrix = np.nan_to_num(np.stack([raw_numeric[nid] for nid in node_ids], axis=0), nan=0.0)
+    numeric_matrix = np.log1p(np.clip(numeric_matrix, a_min=0.0, a_max=None))
+    max_per_col = numeric_matrix.max(axis=0)
+    max_per_col[max_per_col == 0] = 1.0
+    numeric_matrix = (numeric_matrix / max_per_col).astype(np.float32)
+
+    party_counts = pd.Series([raw_party[nid] for nid in node_ids]).value_counts()
+    top_parties = list(party_counts.index[:_LIAR_TOP_PARTIES])
+    party_to_col = {party: idx for idx, party in enumerate(top_parties)}
+    party_matrix = np.zeros((len(node_ids), len(top_parties) + 1), dtype=np.float32)
+    for row_idx, nid in enumerate(node_ids):
+        col = party_to_col.get(raw_party[nid], len(top_parties))
+        party_matrix[row_idx, col] = 1.0
+
+    hasher = HashingVectorizer(
+        n_features=_LIAR_SPEAKER_SUBJECT_HASH_DIM,
+        alternate_sign=False,
+        norm="l2",
+        lowercase=True,
+    )
+    speaker_matrix = hasher.transform([raw_speaker_subject[nid] for nid in node_ids]).astype(np.float32).toarray()
+
+    combined = np.concatenate([numeric_matrix, party_matrix, speaker_matrix], axis=1)
+    return {nid: combined[idx] for idx, nid in enumerate(node_ids)}
+
+
 def load_liar(
     registry: DatasetRegistry,
     logger: logging.Logger,
     chunksize: int = 10000,
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, dict[str, np.ndarray]]:
     rows: List[dict] = []
+    raw_numeric: Dict[str, np.ndarray] = {}
+    raw_party: Dict[str, str] = {}
+    raw_speaker_subject: Dict[str, str] = {}
 
     for split in ["train", "valid", "test"]:
         paths = _as_path_list(registry.liar_tsvs.get(split))
@@ -295,24 +353,32 @@ def load_liar(
                 chunk["binary_label"] = mapped[mapped.notna()].astype(int)
 
                 source_name = Path(path).parent.name.replace(" ", "_")
-                for row_id, text, label in zip(
-                    chunk["id"].astype(str),
-                    chunk["statement"].astype(str),
-                    chunk["binary_label"],
-                ):
+                for _, row in chunk.iterrows():
+                    node_id = f"liar:{split}:{source_name}:{str(row['id']).replace('.json', '')}"
                     rows.append(
                         {
-                            "id": f"liar:{split}:{source_name}:{row_id.replace('.json', '')}",
+                            "id": node_id,
                             "parent_id": None,
-                            "text": text,
-                            "label": int(label),
+                            "text": str(row["statement"]),
+                            "label": int(row["binary_label"]),
                             "timestamp": None,
                             "dataset": "liar",
                             "source": source_name,
                         }
                     )
 
-    return pd.DataFrame(rows)
+                    raw_numeric[node_id] = np.array(
+                        [pd.to_numeric(row.get(col), errors="coerce") for col in LIAR_NUMERIC_HISTORY_COLUMNS],
+                        dtype=np.float64,
+                    )
+                    party = str(row.get("party") or "").strip().lower()
+                    raw_party[node_id] = party if party and party != "nan" else "unknown"
+                    speaker = str(row.get("speaker") or "").strip()
+                    subject = str(row.get("subject") or "").strip()
+                    raw_speaker_subject[node_id] = f"{speaker} {subject}".strip()
+
+    extra_features = _build_liar_speaker_history_features(raw_numeric, raw_party, raw_speaker_subject)
+    return pd.DataFrame(rows), extra_features
 
 
 def load_pheme(
