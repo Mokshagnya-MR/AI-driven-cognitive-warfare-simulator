@@ -3,6 +3,77 @@
 All notable changes to ACWS's AI pipeline and serving backend are recorded here.
 Dates are in `YYYY-MM-DD`.
 
+## 2026-09-17 (second pass)
+
+Closes all four items from the previous pass's "Known limitations carried forward".
+
+### Deduplicated the GAT architecture
+
+- `backend/app/services/model_service.py` defined its own copy of
+  `ResidualGATBlock`/`GraphGATClassifier`, hand-synced against
+  `AI/src/gnn_pipeline/model.py` with no enforcement. `backend/app/core/config.py`
+  now adds `AI/src` to `sys.path`, and `model_service.py` imports
+  `GraphGATClassifier` from `gnn_pipeline.model` directly. Verified the backend's
+  12 tests and the FakeNewsNet ablation still reproduce identical numbers after
+  the change (accuracy/F1/ablation deltas byte-for-byte the same).
+
+### Wired `AI/config.yaml` into training
+
+- `AI/src/gnn_pipeline/train.py`'s `train_test_split` calls, the persisted split
+  seed, and the LR surrogate's `random_state` were hardcoded to `42` /
+  `70/15/15`, ignoring `AI/config.yaml`. `TrainConfig` now has `seed`,
+  `train_ratio`, `val_ratio`, `test_ratio` fields; `AI/main.py::load_pipeline_config`
+  reads `AI/config.yaml` (falling back to the old hardcoded defaults if the file
+  is missing) and threads the values through `run_pipeline_for_dataset`.
+  Reran FakeNewsNet to confirm this is a no-op when `config.yaml` matches the old
+  hardcoded defaults (it does): identical accuracy/F1/confusion matrix.
+
+### LIAR speaker truthfulness-history features
+
+- `AI/src/gnn_pipeline/loaders.py::load_liar` previously kept only `id`,
+  `statement`, `label` and discarded `barely_true`, `false_count`,
+  `half_true_count`, `mostly_true_count`, `pants_fire_count`, `party`, `speaker`,
+  and `subject` — columns the LIAR literature shows carry more signal than the
+  statement text alone. `load_liar` now also returns a per-node 28-dim feature
+  dict (5 log1p-normalized history counts, a 7-dim party one-hot with an "other"
+  bucket for the long tail, and a 16-dim hashed speaker+subject vector), fed
+  through the existing `build_node_features(user_feature_matrix=...)` append path
+  unchanged. Retrained LIAR (`GraphGATClassifier` and the GCN baseline): accuracy
+  0.6566 → 0.7176, F1 0.7837 → 0.8155, ROC-AUC 0.6193 → 0.7556. The GCN baseline
+  moved similarly (F1 0.7831 → 0.8052); the LR surrogate (runtime 4-feature-only)
+  is unaffected by design, since it never sees these node features.
+
+### Model-derived `risk_level`
+
+- `explanation_engine.py`'s `_summarize_risk` was a hand-written combination of
+  raw feature thresholds (`velocity > 6.0`, `bot_ratio > 0.2`, etc.), not
+  derived from the model. `train_and_evaluate` now computes tertile cut points
+  over the validation-set probability distribution at the best epoch and persists
+  them as `risk_thresholds.{low_medium,medium_high}` in `metrics.json`.
+  `ModelService._load_risk_thresholds` loads them (falling back to plain thirds
+  for older artifacts); `explanation_engine._risk_level_from_probability` buckets
+  the live prediction probability against them instead. Chose tertile bucketing
+  over probability calibration (Platt/isotonic) because FakeNewsNet's 46-example
+  test split is too small to fit a calibration curve reliably — see
+  `AI/config.yaml` split sizes.
+
+### Verification
+
+- `pytest tests/test_model_service.py tests/test_api.py`: 12 passed.
+- `pytest tests/test_pipeline_per_dataset.py`: 2 passed (covers the new
+  `load_liar` return signature and `TrainConfig` fields via `run_pipeline_for_dataset`).
+- Manual smoke test of `load_liar` against the real LIAR TSVs (12,791 rows, all
+  producing a 28-dim feature vector).
+
+### Known follow-up
+
+- PHEME was not retrained in this pass since its node feature schema didn't
+  change and a full retrain (9,367-example test split) is expensive; its
+  `metrics.json` therefore has no `risk_thresholds` yet. Not currently
+  observable in production since `DEFAULT_SERVING_DATASET` is `"fakenewsnet"`
+  (`backend/app/core/config.py`), and `ModelService` falls back to plain thirds
+  if PHEME is ever swapped in as the serving model without a retrain.
+
 ## 2026-09-17
 
 ### Reproducibility fix
@@ -122,23 +193,21 @@ numbers. They are regenerated from this session's runs, not the earlier degenera
 
 ## Known limitations carried forward
 
-- `risk_level` in `explanation_engine.py` is rule-based, not model-derived
-  (unchanged from the original review — no phase in this pass targeted it).
+All four items previously listed here (`risk_level` rule-based, duplicated
+`GraphGATClassifier`, LIAR discarding speaker-history columns, unwired
+`AI/config.yaml`) were fixed in the "2026-09-17 (second pass)" entry above.
+
+Remaining:
+
 - The runtime 4-feature vector (`velocity`, `bot_ratio`, `echo_density`, `depth`) is
   simulator-derived online but dataset-derived offline; they are different
   data-generating processes and are not directly comparable, as already documented
   in the README.
-- `AI/src/gnn_pipeline/model.py` and `backend/app/services/model_service.py` each
-  define their own copy of `GraphGATClassifier` / `ResidualGATBlock`. They must be
-  kept in sync by hand; nothing currently enforces that.
-- LIAR's loader (`AI/src/gnn_pipeline/loaders.py::load_liar`) extracts only `id`,
-  `statement`, and `label` from the TSVs. It discards the speaker-history columns
-  (`barely_true`, `false_count`, `half_true_count`, `mostly_true_count`,
-  `pants_fire_count`) and `party`/`subject`/`speaker` metadata, which are known in
-  the LIAR literature to carry more signal than the statement text alone. Adding
-  them as auxiliary node features is a plausible way to move LIAR off its
-  near-majority-class baseline, but was out of scope for this pass (it changes the
-  per-dataset feature schema, not just the training loop).
-- `AI/config.yaml` (seed, split ratios) is not read by any code; the same values
-  are hardcoded directly in `AI/src/gnn_pipeline/train.py`. Either wire it up or
-  remove it.
+- PHEME was not retrained in the second pass, so its `metrics.json` has no
+  `risk_thresholds` yet (see that entry's "Known follow-up"). Low priority since
+  it is not the default serving dataset.
+- `AI/src/gnn_pipeline/gcn_baseline.py` and `ablation.py` still build their own
+  `TrainConfig()` with defaults rather than reading `AI/config.yaml` through
+  `AI/main.py::load_pipeline_config`. They happen to match the file's current
+  values, so this is silent only as long as nobody edits `config.yaml` without
+  also updating these two call sites.

@@ -242,7 +242,9 @@ SHAP estimates per-feature contribution to model output. ACWS uses these values 
   - structural features (degree, centrality, clustering, propagation depth)
   - temporal features
   - bot probability
-  - optional compressed user feature vectors
+  - optional compressed user feature vectors (FakeNewsNet user `.mat` features;
+    LIAR speaker truthfulness-history counts, party, and hashed speaker/subject —
+    28 dims, see `AI/src/gnn_pipeline/loaders.py::_build_liar_speaker_history_features`)
 - **Backend runtime features (inference):**
   - velocity
   - bot ratio
@@ -252,7 +254,12 @@ SHAP estimates per-feature contribution to model output. ACWS uses these values 
 ## Model and Inference
 
 ### Model
-- Architecture: residual Graph Attention classifier (`GraphGATClassifier`)
+- Architecture: residual Graph Attention classifier (`GraphGATClassifier`),
+  defined once in `AI/src/gnn_pipeline/model.py` and imported by both the
+  offline training pipeline and `backend/app/services/model_service.py` (the
+  backend adds `AI/src` to `sys.path` in `backend/app/core/config.py`) — there
+  is no longer a second hand-synced copy of the architecture to drift out of
+  sync
 - Trained offline via `AI/src/gnn_pipeline/train.py`
 - Artifacts exported to `AI/outputs`:
   - `model_state_dict.pt`
@@ -286,18 +293,22 @@ structure; LIAR and PHEME remain available for comparison.
 | Dataset | Accuracy | F1 | ROC-AUC |
 | --- | ---: | ---: | ---: |
 | FakeNewsNet | 0.7174 | 0.8267 | 0.4040 |
-| LIAR | 0.6566 | 0.7837 | 0.6193 |
+| LIAR | 0.7176 | 0.8155 | 0.7556 |
 | PHEME | 0.9348 | 0.8541 | 0.9759 |
-| **Macro-average** | **0.7696** | **0.8215** | **0.6664** |
+| **Macro-average** | **0.7899** | **0.8321** | **0.7118** |
 
 LIAR's graph is intentionally edge-free because its source statements do not
-provide user/news relationships. Its result is therefore a controlled
-comparison with the edge-rich FakeNewsNet and PHEME graphs, not an error hidden
-inside a merged graph — and its F1 sits close to what a text-only classifier is
-expected to achieve on LIAR (the loader currently drops LIAR's speaker
-truthfulness-history columns, which the literature shows carry more signal
-than the statement text alone; see `CHANGELOG.md` for that as a documented
-follow-up rather than something fixed here).
+provide user/news relationships; that structural difference is unchanged and
+still a controlled comparison, not an error hidden inside a merged graph.
+LIAR's node features now include the speaker truthfulness-history counts
+(`barely_true`, `false_count`, `half_true_count`, `mostly_true_count`,
+`pants_fire_count`), party, and a hashed speaker/subject signal, which the
+loader previously discarded even though the LIAR literature shows this
+metadata carries more signal than the statement text alone (see
+`CHANGELOG.md`). Adding them moved LIAR's accuracy from 0.6566 to 0.7176 and
+ROC-AUC from 0.6193 to 0.7556 — all of that improvement comes from richer node
+features, not connectivity, since the graph itself is still edge-free by
+dataset construction.
 
 FakeNewsNet's ROC-AUC (0.40) looks worse than random despite a healthy
 accuracy/F1, which is a small-sample artifact, not a broken model: its test
@@ -319,16 +330,19 @@ residual GCN baseline:
 | Model | FakeNewsNet F1 | LIAR F1 | PHEME F1 | Macro-average F1 |
 | --- | ---: | ---: | ---: | ---: |
 | Logistic Regression surrogate | 0.8205 | 0.7862 | 0.3626 | 0.6564 |
-| GCN baseline | 0.8205 | 0.7831 | 0.8149 | 0.8062 |
-| GraphGATClassifier (ours) | 0.8267 | 0.7837 | 0.8541 | **0.8215** |
+| GCN baseline | 0.8205 | 0.8052 | 0.8149 | 0.8135 |
+| GraphGATClassifier (ours) | 0.8267 | 0.8155 | 0.8541 | **0.8321** |
 
 The GAT is the strongest model overall and clearly ahead of both baselines on
 PHEME (the dataset with enough data — 9,367 test examples — for the comparison
-to be statistically meaningful), while GAT/GCN/LR are close to a three-way tie
-on the two smaller, noisier datasets, where sample size dominates any
-architectural difference. The LR surrogate lagging badly on PHEME (0.36 vs. GAT
-0.85) shows the 4 hand-engineered runtime features alone are not sufficient
-there — the graph structure and richer node features are doing real work.
+to be statistically meaningful), while GAT/GCN/LR are close on FakeNewsNet,
+where sample size dominates any architectural difference. The LR surrogate
+lagging badly on PHEME (0.36 vs. GAT 0.85) shows the 4 hand-engineered runtime
+features alone are not sufficient there — the graph structure and richer node
+features are doing real work. The LR surrogate's LIAR gap (0.7862 vs. GAT's
+0.8155) is the same story on a smaller scale: the LR surrogate only ever sees
+the 4 runtime features, so it does not benefit from the speaker
+truthfulness-history node features described above, while the GAT and GCN do.
 These comparisons are limited by the small FakeNewsNet sample and the
 different graph structures across datasets. Detailed baseline files are stored
 in `AI/outputs/gcn_macro_metrics.json` and `AI/outputs/lr_macro_metrics.json`.
@@ -366,6 +380,16 @@ ratio (`0.0049`), and echo density (`0.0044`). Full output is in
   - risk level (`low|medium|high`)
   - top feature drivers with directional impact
   - recommendation
+
+`risk_level` is model-derived, not a hand-written combination of raw feature
+thresholds: `train.py` computes tertile cut points (`risk_thresholds.low_medium`,
+`risk_thresholds.medium_high`) over the validation-set probability distribution
+at the best epoch and persists them in `metrics.json`; `explanation_engine`
+buckets the live prediction probability against those thresholds. Tertiles were
+chosen over probability calibration (e.g. Platt/isotonic scaling) because
+FakeNewsNet's test split is only 46 examples — not enough to fit a calibration
+curve reliably. A model trained before this was added falls back to plain
+thirds (`0.33`/`0.67`).
 
 ### Frontend Presentation
 - Analyze pages display:
