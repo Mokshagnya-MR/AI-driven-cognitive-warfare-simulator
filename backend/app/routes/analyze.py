@@ -41,6 +41,7 @@ async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
         },
         shap_values=shap_attributions,
         feature_names=shap_attributions.get("feature_names"),
+        risk_thresholds=model_service.risk_thresholds,
     )
 
     return AnalyzeResponse(
@@ -87,6 +88,7 @@ async def analyze_news(request: AnalyzeNewsRequest) -> AnalyzeResponse:
         },
         shap_values=shap_attributions,
         feature_names=shap_attributions.get("feature_names"),
+        risk_thresholds=model_service.risk_thresholds,
     )
 
     return AnalyzeResponse(

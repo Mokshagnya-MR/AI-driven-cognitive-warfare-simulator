@@ -42,16 +42,18 @@ def _normalize_shap_input(shap_values: Any, feature_names: Sequence[str] | None 
     return pairs
 
 
-def _summarize_risk(prediction: int, velocity: float, bot_ratio: float, echo_density: float, depth: float) -> str:
-    suspicious_signals = sum(
-        [velocity > 6.0, bot_ratio > 0.2, echo_density > 0.4, depth > 5.0]
-    )
+def _risk_level_from_probability(probability: float, risk_thresholds: Mapping[str, float] | None) -> str:
+    """Model-derived risk tier: bucket the predicted probability using tertile cut
+    points fit on the validation set at training time (see
+    AI/src/gnn_pipeline/train.py's risk_thresholds), instead of a hand-written
+    combination of raw feature thresholds."""
+    thresholds = risk_thresholds or {}
+    low_medium = float(thresholds.get("low_medium", 1.0 / 3.0))
+    medium_high = float(thresholds.get("medium_high", 2.0 / 3.0))
 
-    if prediction == 1 and velocity > 6.0 and bot_ratio > 0.2:
+    if probability >= medium_high:
         return "high"
-    if prediction == 1 and suspicious_signals >= 2:
-        return "medium"
-    if prediction == 0 and suspicious_signals >= 1:
+    if probability >= low_medium:
         return "medium"
     return "low"
 
@@ -100,6 +102,7 @@ def generate_explanation(
     metrics: Mapping[str, Any],
     shap_values: Any,
     feature_names: Sequence[str] | None = None,
+    risk_thresholds: Mapping[str, float] | None = None,
 ) -> dict[str, Any]:
     velocity = _extract_metric_value(metrics, "velocity")
     bot_ratio = _extract_metric_value(metrics, "bot_ratio")
@@ -114,7 +117,7 @@ def generate_explanation(
 
     reasoning = _build_reasoning_lines(velocity, bot_ratio, echo_density, depth)
     key_drivers = _build_key_drivers(_normalize_shap_input(shap_values, feature_names=feature_names))
-    risk_level = _summarize_risk(int(prediction), velocity, bot_ratio, echo_density, depth)
+    risk_level = _risk_level_from_probability(float(probability), risk_thresholds)
 
     recommendation = (
         "Content should be verified before sharing."

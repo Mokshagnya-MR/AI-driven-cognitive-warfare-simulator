@@ -262,6 +262,7 @@ def train_and_evaluate(
     best_state = None
     best_val_f1 = -1.0
     best_threshold = 0.5
+    best_val_probs: np.ndarray = np.array([], dtype=np.float32)
     patience = 0
 
     for epoch in range(1, cfg.epochs + 1):
@@ -331,6 +332,7 @@ def train_and_evaluate(
         if float(val_metrics["f1"]) > best_val_f1:
             best_val_f1 = float(val_metrics["f1"])
             best_threshold = float(val_threshold)
+            best_val_probs = val_probs.copy()
             best_state = copy.deepcopy(model.state_dict())
             patience = 0
         else:
@@ -351,6 +353,17 @@ def train_and_evaluate(
     )
     test_metrics = compute_metrics(test_labels, test_probs, threshold=best_threshold)
     log_eval_diagnostics(logger, "Test", test_labels, test_probs, best_threshold)
+
+    # Model-derived risk tiers for explanation_engine: tertile cut points over the
+    # validation-set probability distribution at the best epoch, rather than a
+    # hand-written combination of raw feature thresholds.
+    risk_probs = best_val_probs if best_val_probs.size > 0 else test_probs
+    if risk_probs.size > 0:
+        low_medium_cut = float(np.percentile(risk_probs, 100.0 / 3.0))
+        medium_high_cut = float(np.percentile(risk_probs, 200.0 / 3.0))
+    else:
+        low_medium_cut, medium_high_cut = 1.0 / 3.0, 2.0 / 3.0
+    medium_high_cut = max(medium_high_cut, low_medium_cut)
 
     backend_artifacts: dict[str, object] = {}
     if backend_features is not None and backend_model_path is not None:
@@ -452,6 +465,10 @@ def train_and_evaluate(
         "confusion_matrix": test_metrics["confusion_matrix"],
         "threshold_used": float(best_threshold),
         "best_val_f1": float(best_val_f1),
+        "risk_thresholds": {
+            "low_medium": low_medium_cut,
+            "medium_high": medium_high_cut,
+        },
         "split_sizes": {
             "train": int(len(train_idx)),
             "val": int(len(val_idx)),

@@ -170,6 +170,7 @@ class ModelService:
         self.model = self._load_model()
         self.metadata = self._load_metadata()
         self.threshold = self._load_threshold(self.metadata)
+        self.risk_thresholds = self._load_risk_thresholds(self.metadata)
         self.model_info = self._extract_model_info(self.metadata)
         self.is_fallback = isinstance(self.model, FallbackDetectionModel)
         self.model_kind = type(self.model).__name__
@@ -365,6 +366,15 @@ class ModelService:
     def _load_threshold(self, metadata: Dict[str, Any]) -> float:
         threshold = metadata.get("threshold_used", metadata.get("threshold", 0.5))
         return float(np.clip(threshold, 0.0, 1.0))
+
+    def _load_risk_thresholds(self, metadata: Dict[str, Any]) -> Dict[str, float]:
+        """Tertile cut points over the validation probability distribution, computed
+        at training time (see AI/src/gnn_pipeline/train.py). Falls back to plain
+        thirds when a model was trained before risk_thresholds was added."""
+        thresholds = metadata.get("risk_thresholds", {})
+        low_medium = float(np.clip(thresholds.get("low_medium", 1.0 / 3.0), 0.0, 1.0))
+        medium_high = float(np.clip(thresholds.get("medium_high", 2.0 / 3.0), low_medium, 1.0))
+        return {"low_medium": low_medium, "medium_high": medium_high}
 
     def _extract_model_info(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
         return {
