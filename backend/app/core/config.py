@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import sys
 
 from dotenv import load_dotenv
 
@@ -7,6 +8,12 @@ from dotenv import load_dotenv
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 load_dotenv(BACKEND_DIR / ".env")
 PROJECT_ROOT = BACKEND_DIR.parent
+
+# model_service.py loads GraphGATClassifier from here instead of keeping a second,
+# hand-synced copy of the architecture in the backend.
+AI_SRC_DIR = PROJECT_ROOT / "AI" / "src"
+if AI_SRC_DIR.exists() and str(AI_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(AI_SRC_DIR))
 DEFAULT_SERVING_DATASET = "fakenewsnet"
 AI_OUTPUTS_DIR = PROJECT_ROOT / "AI" / "outputs" / DEFAULT_SERVING_DATASET
 MODEL_DIR = BACKEND_DIR / "model"
